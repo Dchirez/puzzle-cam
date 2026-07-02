@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PUZZLE-CAM — casse-tête gestuel</title>
+<style>
+  :root {
+    --bg: #111113;
+    --panel: #1a1a1d;
+    --panel-2: #232327;
+    --ink: #e8e6e0;
+    --muted: #8a8880;
+    --accent: #e6c14c;
+    --ok: #7dd87d;
+    --border: #38383d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Cascadia Mono", "Consolas", "Courier New", monospace;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- barre du haut ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  header .logo { color: var(--accent); font-weight: bold; letter-spacing: 1px; }
+  header .sub { color: var(--muted); font-size: 11px; letter-spacing: 2px; }
+  header .spacer { flex: 1; }
+  .chip {
+    background: #000;
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .chip .dot { color: var(--accent); }
+  #chip-placed { display: none; }
+  #chip-placed.on { display: inline-block; }
+
+  /* ---------- corps ---------- */
+  main { flex: 1; display: flex; min-height: 0; }
+
+  #stage-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    min-width: 0;
+  }
+  canvas#stage {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+  }
+  video#cam { display: none; }
+
+  #overlay-msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10,10,12,.92);
+    text-align: center;
+    padding: 30px;
+    font-size: 14px;
+    line-height: 1.7;
+    z-index: 5;
+  }
+  #overlay-msg.hidden { display: none; }
+  #overlay-msg .big { color: var(--accent); font-size: 18px; letter-spacing: 2px; }
+
+  /* ---------- panneau droit ---------- */
+  aside {
+    flex: 0 0 240px;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  aside .head {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+  aside .head .count { color: var(--muted); }
+  #gallery {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  #gallery .shot {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 8px;
+  }
+  #gallery .shot img { width: 100%; display: block; filter: grayscale(1); }
+  #gallery .shot .cap {
+    text-align: center;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding-top: 6px;
+  }
+  #gallery .empty {
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    margin-top: 30px;
+    line-height: 1.8;
+  }
+  aside .actions {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  aside button {
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 2px;
+    padding: 9px 8px;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  aside button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  aside button:disabled { opacity: .35; cursor: default; }
+
+  /* ---------- légende bas ---------- */
+  footer {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    padding: 9px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  footer .k { display: flex; align-items: center; gap: 7px; }
+  footer .ic { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  footer .ic.c1 { background: var(--accent); }
+  footer .ic.c2 { background: #6fb3d9; }
+  footer .ic.c3 { background: #d97b6f; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">PUZZLE-CAM</span>
+  <span class="sub">CASSE-TÊTE GESTUEL — MAINS LIBRES</span>
+  <span class="spacer"></span>
+  <span class="chip" id="chip-placed"><span id="placed-count">0</span> / 9 PIÈCES PLACÉES</span>
+  <span class="chip"><span class="dot">●</span> <span id="status-text">PINCE LES DEUX MAINS POUR CADRER ET CAPTURER</span></span>
+</header>
+
+<main>
+  <div id="stage-wrap">
+    <video id="cam" playsinline></video>
+    <canvas id="stage"></canvas>
+    <div id="overlay-msg">
+      <div class="big">PUZZLE-CAM</div>
+      <div id="overlay-text">Chargement du modèle de détection des mains…</div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="head"><span>BANDE</span><span class="count" id="gallery-count">0 CAPTURE</span></div>
+    <div id="gallery"><div class="empty">Aucune capture.<br>Résous un puzzle puis<br>ferme le poing pour<br>sauvegarder ici.</div></div>
+    <div class="actions">
+      <button id="btn-download" disabled>TÉLÉCHARGER LA BANDE</button>
+      <button id="btn-reset">RÉINITIALISER TOUT</button>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <span class="k"><span class="ic c1"></span> pince les 2 mains sur 2 coins → étirer le cadre, stable 3s → capture</span>
+  <span class="k"><span class="ic c2"></span> pince 1 main sur une pièce → déplacer puis relâcher</span>
+  <span class="k"><span class="ic c3"></span> poing fermé (1s) → sauvegarder et recommencer</span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script>
+'use strict';
+
+/* ============================================================
+   PUZZLE-CAM — casse-tête 3x3 contrôlé uniquement à la main
+   États : LIVE → COUNTDOWN → PUZZLE → SOLVED → (poing) → LIVE
+   ============================================================ */
+
+const GRID = 3;                 // 3x3 = 9 pièces
+const COUNTDOWN_MS = 3000;      // pince 2 mains maintenue avant capture
+const FIST_HOLD_MS = 1000;      // poing maintenu avant sauvegarde/reset
+const PINCH_RATIO = 0.35;       // dist 3D (pouce,index) / taille main => pince
+const PINCH_RELEASE = 0.55;     // hystérésis pour relâcher
+const PINCH_ON_FRAMES = 3;      // frames consécutives sous le seuil pour activer
+const PINCH_OFF_FRAMES = 4;     // frames consécutives au-dessus pour relâcher
+const DRAG_GRACE_MS = 300;      // main perdue par le tracking : on garde la pièce
+
+const video   = document.getElementById('cam');
+const canvas  = document.getElementById('stage');
+const ctx     = canvas.getContext('2d');
+const overlay = document.getElementById('overlay-msg');
+const overlayText = document.getElementById('overlay-text');
+const statusText  = document.getElementById('status-text');
+const chipPlaced  = document.getElementById('chip-placed');
+const placedCount = document.getElementById('placed-count');
+const galleryEl   = document.getElementById('gallery');
+const galleryCount= document.getElementById('gallery-count');
+const btnDownload = document.getElementById('btn-download');
+const btnReset    = document.getElementById('btn-reset');
+
+let W = 1280, H = 720;
+let mode = 'boot';              // boot | live | countdown | puzzle | solved
+let countdownStart = null;
+let fistStart = null;
+let actionCooldownUntil = 0;    // anti-redéclenchement après un reset
+
+// zone du puzzle (rectangle) — carré centré par défaut, redimensionnable
+// en pinçant deux coins opposés avec les deux mains
+let zone = { x: 0, y: 0, w: 0, h: 0, cw: 0, ch: 0 };
+const MIN_ZONE = 180;           // taille minimale du cadre en pixels
+const STILL_TOLERANCE = 28;     // mouvement max des coins avant de relancer le compte à rebours
+let lastCorners = null;         // positions des coins à la frame précédente
+
+function setZone(x, y, w, h) {
+  zone.x = x; zone.y = y; zone.w = w; zone.h = h;
+  zone.cw = w / GRID; zone.ch = h / GRID;
+}
+
+// puzzle
+let tiles = [];                 // 9 canvases (l'image découpée)
+let grid  = [];                 // grid[cellule] = index de pièce
+let captureCanvas = null;       // l'image complète capturée
+let solvedAt = null;
+
+// drag en cours : { label, tile, fromCell, x, y }
+let drag = null;
+
+// suivi de pince par main : hystérésis + vote multi-frames + lissage du point
+const pinchTrack = {};
+
+// galerie
+const shots = [];
+
+/* ---------------- utilitaires ---------------- */
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+function setStatus(t) { statusText.textContent = t; }
+
+function cellAt(x, y) {
+  if (x < zone.x || y < zone.y || x >= zone.x + zone.w || y >= zone.y + zone.h) return -1;
+  const col = Math.min(GRID - 1, Math.floor((x - zone.x) / zone.cw));
+  const row = Math.min(GRID - 1, Math.floor((y - zone.y) / zone.ch));
+  return row * GRID + col;
+}
+
+function cellRect(i) {
+  return {
+    x: zone.x + (i % GRID) * zone.cw,
+    y: zone.y + Math.floor(i / GRID) * zone.ch,
+    w: zone.cw, h: zone.ch
+  };
+}
+
+function shuffleDerangement(n) {
+  const arr = [...Array(n).keys()];
+  let ok = false;
+  while (!ok) {
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    ok = arr.every((v, i) => v !== i);
+  }
+  return arr;
+}
+
+/* ---------------- gestes ---------------- */
+
+// Extrait pour chaque main détectée : position de pince, pince ?, poing ?
+function readHands(results) {
+  const hands = [];
+  if (!results.multiHandLandmarks) return hands;
+
+  results.multiHandLandmarks.forEach((lm, i) => {
+    const label = results.multiHandedness?.[i]?.label ?? ('H' + i);
+    // repère : coordonnées normalisées, x inversé (miroir)
+    const p = idx => ({ x: (1 - lm[idx].x) * W, y: lm[idx].y * H });
+    // version 3D : la profondeur z évite les fausses pinces quand pouce et
+    // index s'alignent dans l'axe de la caméra (proches à l'écran, écartés en vrai)
+    const p3 = idx => ({ x: (1 - lm[idx].x) * W, y: lm[idx].y * H, z: lm[idx].z * W });
+
+    const wrist = p(0), thumb = p(4), index = p(8);
+    const thumb3 = p3(4), index3 = p3(8);
+    // taille de main robuste à l'orientation : le max de deux références,
+    // car chacune se raccourcit quand la main pivote
+    const palmWidth3 = dist3(p3(5), p3(17));
+    const handSize = Math.max(1, dist3(p3(0), p3(9)), palmWidth3 * 1.35);
+    const ratio = dist3(thumb3, index3) / handSize;
+    // vraie pince = l'index est nettement le doigt le plus proche du pouce
+    // (main relâchée ou à moitié fermée : le majeur est aussi proche → rejeté)
+    const indexClosest = dist3(thumb3, index3) < dist3(thumb3, p3(12)) * 0.9;
+
+    const tr = pinchTrack[label] ??= { pinch: false, on: 0, off: 0, pt: null };
+    const was = tr.pinch;
+
+    // hystérésis + vote sur plusieurs frames : une frame de bruit ne suffit
+    // ni à déclencher la pince, ni à la relâcher en plein déplacement
+    if (!tr.pinch) {
+      tr.on = (ratio < PINCH_RATIO && indexClosest) ? tr.on + 1 : 0;
+      if (tr.on >= PINCH_ON_FRAMES) { tr.pinch = true; tr.off = 0; }
+    } else {
+      tr.off = ratio > PINCH_RELEASE ? tr.off + 1 : 0;
+      if (tr.off >= PINCH_OFF_FRAMES) { tr.pinch = false; tr.on = 0; }
+    }
+
+    // poing : les 4 doigts repliés (bout plus proche du poignet que l'articulation)
+    let folded = 0;
+    [[8, 6], [12, 10], [16, 14], [20, 18]].forEach(([tip, pip]) => {
+      if (dist(p(tip), wrist) < dist(p(pip), wrist)) folded++;
+    });
+    const fist = folded === 4 && !tr.pinch;
+
+    // point de pince lissé (moyenne mobile exponentielle) : moins de tremblement
+    const raw = { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
+    tr.pt = tr.pt ? { x: tr.pt.x * 0.45 + raw.x * 0.55, y: tr.pt.y * 0.45 + raw.y * 0.55 } : raw;
+
+    hands.push({ label, lm, pinch: tr.pinch, fist, point: { ...tr.pt }, wasPinch: was, ratio });
+  });
+  return hands;
+}
+
+/* ---------------- capture et puzzle ---------------- */
+
+function capturePuzzle() {
+  // dimensions entières multiples de 3 pour un découpage net
+  const w = Math.max(MIN_ZONE, Math.round(zone.w / GRID) * GRID);
+  const h = Math.max(MIN_ZONE, Math.round(zone.h / GRID) * GRID);
+  setZone(zone.x, zone.y, w, h);
+
+  captureCanvas = document.createElement('canvas');
+  captureCanvas.width = w;
+  captureCanvas.height = h;
+  const c = captureCanvas.getContext('2d');
+  // recopie la zone depuis la vidéo (miroir + noir et blanc)
+  c.filter = 'grayscale(1) contrast(1.05)';
+  c.translate(w, 0);
+  c.scale(-1, 1);
+  const srcX = W - (zone.x + zone.w); // x dans le repère non-miroir
+  c.drawImage(video, srcX * (video.videoWidth / W), zone.y * (video.videoHeight / H),
+              zone.w * (video.videoWidth / W), zone.h * (video.videoHeight / H),
+              0, 0, w, h);
+
+  tiles = [];
+  for (let i = 0; i < GRID * GRID; i++) {
+    const t = document.createElement('canvas');
+    t.width = zone.cw; t.height = zone.ch;
+    t.getContext('2d').drawImage(captureCanvas,
+      (i % GRID) * zone.cw, Math.floor(i / GRID) * zone.ch, zone.cw, zone.ch,
+      0, 0, zone.cw, zone.ch);
+    tiles.push(t);
+  }
+  grid = shuffleDerangement(GRID * GRID);
+  drag = null;
+  solvedAt = null;
+  mode = 'puzzle';
+  chipPlaced.classList.add('on');
+  setStatus('ASSEMBLE LE PUZZLE AVEC UNE PINCE');
+}
+
+function placedTiles() {
+  return grid.reduce((n, t, i) => n + (t === i ? 1 : 0), 0);
+}
+
+function resetToLive() {
+  mode = 'live';
+  tiles = [];
+  grid = [];
+  drag = null;
+  captureCanvas = null;
+  solvedAt = null;
+  countdownStart = null;
+  fistStart = null;
+  actionCooldownUntil = performance.now() + 1500;
+  chipPlaced.classList.remove('on');
+  lastCorners = null;
+  setStatus('PINCE LES DEUX MAINS POUR CADRER ET CAPTURER');
+}
+
+/* ---------------- galerie ---------------- */
+
+function saveShot() {
+  if (!captureCanvas) return;
+  const url = captureCanvas.toDataURL('image/png');
+  const time = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  shots.push({ url, time, solved: mode === 'solved' });
+  renderGallery();
+}
+
+function renderGallery() {
+  galleryCount.textContent = shots.length + (shots.length > 1 ? ' CAPTURES' : ' CAPTURE');
+  btnDownload.disabled = shots.length === 0;
+  if (shots.length === 0) {
+    galleryEl.innerHTML = '<div class="empty">Aucune capture.<br>Résous un puzzle puis<br>ferme le poing pour<br>sauvegarder ici.</div>';
+    return;
+  }
+  galleryEl.innerHTML = shots.map((s, i) =>
+    `<div class="shot"><img src="${s.url}" alt="capture ${i + 1}">
+     <div class="cap">#${String(i + 1).padStart(2, '0')} · ${s.time}${s.solved ? ' · RÉSOLU' : ''}</div></div>`
+  ).reverse().join('');
+}
+
+btnDownload.addEventListener('click', () => {
+  if (shots.length === 0) return;
+  const size = 480, gap = 16;
+  const strip = document.createElement('canvas');
+  strip.width = size + gap * 2;
+  strip.height = shots.length * (size + gap) + gap;
+  const c = strip.getContext('2d');
+  c.fillStyle = '#111113';
+  c.fillRect(0, 0, strip.width, strip.height);
+  let loaded = 0;
+  shots.forEach((s, i) => {
+    const img = new Image();
+    img.onload = () => {
+      c.drawImage(img, gap, gap + i * (size + gap), size, size);
+      if (++loaded === shots.length) {
+        const a = document.createElement('a');
+        a.download = 'puzzle-cam-bande.png';
+        a.href = strip.toDataURL('image/png');
+        a.click();
+      }
+    };
+    img.src = s.url;
+  });
+});
+
+btnReset.addEventListener('click', () => {
+  shots.length = 0;
+  renderGallery();
+  resetToLive();
+});
+
+/* ---------------- dessin ---------------- */
+
+function drawVideo() {
+  ctx.save();
+  ctx.filter = 'grayscale(1) contrast(1.05)';
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+  // léger voile sombre hors zone pour faire ressortir le puzzle
+  if (mode !== 'boot') {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.rect(zone.x, zone.y, zone.w, zone.h);
+    ctx.fill('evenodd');
+    ctx.restore();
+  }
+}
+
+function drawZoneFrame(color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(zone.x - 1.5, zone.y - 1.5, zone.w + 3, zone.h + 3);
+}
+
+// poignées visuelles sur les coins tenus par les pinces
+function drawCornerHandles(hands) {
+  ctx.save();
+  ctx.strokeStyle = '#e6c14c';
+  ctx.lineWidth = 4;
+  hands.forEach(h => {
+    ctx.beginPath();
+    ctx.arc(h.point.x, h.point.y, 10, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  // dimensions affichées au bord du cadre
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(zone.x + zone.w / 2 - 58, zone.y + zone.h + 8, 116, 22);
+  ctx.fillStyle = '#e6c14c';
+  ctx.font = '12px "Cascadia Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${Math.round(zone.w)} × ${Math.round(zone.h)}`, zone.x + zone.w / 2, zone.y + zone.h + 24);
+  ctx.restore();
+}
+
+function drawPuzzle() {
+  for (let cell = 0; cell < GRID * GRID; cell++) {
+    const t = grid[cell];
+    if (drag && drag.fromCell === cell) continue; // la pièce saisie est dessinée à part
+    const r = cellRect(cell);
+    ctx.drawImage(tiles[t], r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = t === cell ? 'rgba(125,216,125,0.85)' : 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = t === cell ? 2 : 1;
+    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+  }
+  if (drag) {
+    const dw = zone.cw * 1.06, dh = zone.ch * 1.06;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 24;
+    ctx.drawImage(tiles[drag.tile], drag.x - dw / 2, drag.y - dh / 2, dw, dh);
+    ctx.strokeStyle = '#e6c14c';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(drag.x - dw / 2, drag.y - dh / 2, dw, dh);
+    ctx.restore();
+    // case cible surlignée
+    const target = cellAt(drag.x, drag.y);
+    if (target >= 0) {
+      const r = cellRect(target);
+      ctx.strokeStyle = 'rgba(230,193,76,0.7)';
+      ctx.setLineDash([8, 6]);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x + 3, r.y + 3, r.w - 6, r.h - 6);
+      ctx.setLineDash([]);
+    }
+  }
+}
+
+function drawSolved(now) {
+  ctx.drawImage(captureCanvas, zone.x, zone.y, zone.w, zone.h);
+  const pulse = 0.6 + 0.4 * Math.sin(now / 250);
+  ctx.strokeStyle = `rgba(230,193,76,${pulse})`;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(zone.x - 4, zone.y - 4, zone.w + 8, zone.h + 8);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  const bw = 340, bh = 64;
+  const by = Math.max(10, zone.y - 80); // reste visible même si le cadre touche le haut
+  ctx.fillRect(W / 2 - bw / 2, by, bw, bh);
+  ctx.fillStyle = '#e6c14c';
+  ctx.font = 'bold 26px "Cascadia Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('RÉSOLU !', W / 2, by + 26);
+  ctx.fillStyle = '#e8e6e0';
+  ctx.font = '13px "Cascadia Mono", Consolas, monospace';
+  ctx.fillText('poing fermé pour sauvegarder', W / 2, by + 50);
+  ctx.restore();
+}
+
+function drawCountdown(now) {
+  const elapsed = now - countdownStart;
+  const remain = Math.max(0, COUNTDOWN_MS - elapsed);
+  const n = Math.ceil(remain / 1000);
+  const frac = (remain % 1000) / 1000;
+  const cx = zone.x + zone.w / 2, cy = zone.y + zone.h / 2;
+
+  ctx.save();
+  ctx.strokeStyle = '#e6c14c';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 70, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+  ctx.stroke();
+  ctx.fillStyle = '#e6c14c';
+  ctx.font = 'bold 72px "Cascadia Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(n), cx, cy);
+  ctx.restore();
+}
+
+function drawFistProgress(now, point) {
+  const frac = Math.min(1, (now - fistStart) / FIST_HOLD_MS);
+  ctx.save();
+  ctx.strokeStyle = '#d97b6f';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y - 60, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+  ctx.stroke();
+  ctx.fillStyle = '#d97b6f';
+  ctx.font = '11px "Cascadia Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SAUVEGARDE…', point.x, point.y - 100);
+  ctx.restore();
+}
+
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+               [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+function drawHand(hand) {
+  const p = idx => ({ x: (1 - hand.lm[idx].x) * W, y: hand.lm[idx].y * H });
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  BONES.forEach(([a, b]) => {
+    const pa = p(a), pb = p(b);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+  });
+  for (let i = 0; i < 21; i++) {
+    const pt = p(i);
+    ctx.fillStyle = (i === 4 || i === 8) ? '#e6c14c' : '#fff';
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, i % 4 === 0 ? 4 : 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // jauge de pince : la ligne pouce-index jaunit à l'approche du seuil
+  const thumb = p(4), index = p(8);
+  if (hand.pinch) {
+    ctx.strokeStyle = '#e6c14c';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(hand.point.x, hand.point.y, 14, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(230,193,76,0.35)';
+    ctx.beginPath(); ctx.arc(hand.point.x, hand.point.y, 14, 0, Math.PI * 2); ctx.fill();
+  } else {
+    const closeness = Math.max(0, Math.min(1, 1 - (hand.ratio - PINCH_RATIO) / 0.45));
+    ctx.strokeStyle = `rgba(${255 - 25 * closeness},${255 - 62 * closeness},${255 - 179 * closeness},${0.35 + 0.6 * closeness})`;
+    ctx.lineWidth = 2 + 2.5 * closeness;
+    ctx.setLineDash(closeness > 0.8 ? [] : [5, 5]);
+    ctx.beginPath(); ctx.moveTo(thumb.x, thumb.y); ctx.lineTo(index.x, index.y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+/* ---------------- logique par frame ---------------- */
+
+function onResults(results) {
+  if (mode === 'boot') {
+    mode = 'live';
+    overlay.classList.add('hidden');
+  }
+  const now = performance.now();
+  drawVideo();
+
+  const hands = readHands(results);
+  const pinching = hands.filter(h => h.pinch);
+  const fists = hands.filter(h => h.fist);
+
+  /* --- machine à états --- */
+  if (mode === 'live' || mode === 'countdown') {
+    if (pinching.length >= 2 && now > actionCooldownUntil) {
+      // les deux pinces tiennent deux coins opposés : le cadre les suit
+      const [a, b] = [...pinching].sort((p, q) => p.label.localeCompare(q.label));
+      const x1 = Math.min(a.point.x, b.point.x), x2 = Math.max(a.point.x, b.point.x);
+      const y1 = Math.min(a.point.y, b.point.y), y2 = Math.max(a.point.y, b.point.y);
+      const w = Math.min(W, Math.max(MIN_ZONE, x2 - x1));
+      const h = Math.min(H, Math.max(MIN_ZONE, y2 - y1));
+      setZone(
+        Math.max(0, Math.min(x1, W - w)),
+        Math.max(0, Math.min(y1, H - h)),
+        w, h);
+
+      // le compte à rebours ne tourne que si les coins sont à peu près immobiles
+      const moved = lastCorners
+        ? dist(a.point, lastCorners[0]) + dist(b.point, lastCorners[1])
+        : 0;
+      lastCorners = [{ ...a.point }, { ...b.point }];
+
+      if (mode === 'live') { mode = 'countdown'; countdownStart = now; setStatus('AJUSTE LE CADRE — STABLE 3S POUR CAPTURER'); }
+      if (moved > STILL_TOLERANCE) countdownStart = now; // en train d'ajuster
+
+      drawZoneFrame('#e6c14c');
+      drawCornerHandles([a, b]);
+      if (now - countdownStart >= COUNTDOWN_MS) capturePuzzle();
+      else drawCountdown(now);
+    } else {
+      drawZoneFrame('rgba(230,193,76,0.45)');
+      lastCorners = null;
+      if (mode === 'countdown') {
+        mode = 'live';
+        countdownStart = null;
+        setStatus('PINCE LES DEUX MAINS POUR CADRER ET CAPTURER');
+      }
+    }
+  }
+  else if (mode === 'puzzle') {
+    drawZoneFrame('rgba(230,193,76,0.45)');
+    drawPuzzle();
+
+    /* --- glisser-déposer --- */
+    if (drag) {
+      const h = hands.find(x => x.label === drag.label);
+      if (h && h.pinch) {
+        drag.x = h.point.x; drag.y = h.point.y;
+        drag.lastSeen = now;
+      } else if (!h && now - drag.lastSeen < DRAG_GRACE_MS) {
+        // main momentanément perdue par le tracking : on garde la pièce en main
+      } else {
+        // relâché (ou main perdue) : dépose et échange
+        const target = cellAt(drag.x, drag.y);
+        if (target >= 0 && target !== drag.fromCell) {
+          [grid[drag.fromCell], grid[target]] = [grid[target], grid[drag.fromCell]];
+        }
+        drag = null;
+        if (placedTiles() === GRID * GRID) {
+          mode = 'solved';
+          solvedAt = now;
+          setStatus('RÉSOLU — POING FERMÉ POUR SAUVEGARDER');
+        }
+      }
+    } else {
+      // nouvelle pince sur une pièce ?
+      const starter = hands.find(h => h.pinch && !h.wasPinch && cellAt(h.point.x, h.point.y) >= 0);
+      if (starter && now > actionCooldownUntil) {
+        const cell = cellAt(starter.point.x, starter.point.y);
+        drag = { label: starter.label, tile: grid[cell], fromCell: cell, x: starter.point.x, y: starter.point.y, lastSeen: now };
+      }
+    }
+    placedCount.textContent = placedTiles();
+  }
+  else if (mode === 'solved') {
+    drawSolved(now);
+    placedCount.textContent = GRID * GRID;
+  }
+
+  /* --- poing fermé : sauvegarder + recommencer (en puzzle ou résolu) --- */
+  if ((mode === 'puzzle' || mode === 'solved') && !drag && fists.length > 0 && now > actionCooldownUntil) {
+    if (fistStart === null) fistStart = now;
+    drawFistProgress(now, fists[0].point);
+    if (now - fistStart >= FIST_HOLD_MS) {
+      saveShot();
+      resetToLive();
+    }
+  } else {
+    fistStart = null;
+  }
+
+  hands.forEach(drawHand);
+}
+
+/* ---------------- init caméra ---------------- */
+
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.55,
+  minTrackingConfidence: 0.45
+});
+hands.onResults(onResults);
+
+async function start() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    W = canvas.width = video.videoWidth || 1280;
+    H = canvas.height = video.videoHeight || 720;
+
+    const s = Math.floor(Math.min(W, H) * 0.72 / GRID) * GRID; // multiple de 3
+    setZone(Math.floor((W - s) / 2), Math.floor((H - s) / 2), s, s);
+
+    overlayText.textContent = 'Caméra OK — chargement du modèle de détection des mains…';
+
+    const loop = async () => {
+      if (video.readyState >= 2) await hands.send({ image: video });
+      requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (err) {
+    overlay.classList.remove('hidden');
+    overlayText.innerHTML =
+      'Impossible d\'accéder à la caméra.<br>' +
+      'Vérifie que l\'accès est autorisé dans le navigateur<br>' +
+      'et qu\'aucune autre application ne l\'utilise.<br><br>' +
+      '<span style="color:var(--muted)">' + err.name + ' — ' + err.message + '</span>';
+  }
+}
+
+start();
+</script>
+</body>
+</html>

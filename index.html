@@ -177,7 +177,7 @@
   <span class="sub">CASSE-TÊTE GESTUEL — MAINS LIBRES</span>
   <span class="spacer"></span>
   <span class="chip" id="chip-placed"><span id="placed-count">0</span> / 9 PIÈCES PLACÉES</span>
-  <span class="chip"><span class="dot">●</span> <span id="status-text">PINCE LES DEUX MAINS POUR CADRER ET CAPTURER</span></span>
+  <span class="chip"><span class="dot">●</span> <span id="status-text">CADRE IMMOBILE 3 S = PHOTO</span></span>
 </header>
 
 <main>
@@ -201,9 +201,11 @@
 </main>
 
 <footer>
-  <span class="k"><span class="ic c1"></span> pince les 2 mains sur 2 coins → étirer le cadre, stable 3s → capture</span>
-  <span class="k"><span class="ic c2"></span> pince 1 main sur une pièce → déplacer puis relâcher</span>
-  <span class="k"><span class="ic c3"></span> poing fermé (1s) → sauvegarder et recommencer</span>
+  <span class="k"><span class="ic c1"></span> 2 mains pincées → étirer le cadre par 2 coins</span>
+  <span class="k"><span class="ic c1"></span> 1 main : écart pouce-index (autres doigts repliés) → zoomer le cadre</span>
+  <span class="k"><span class="ic c1"></span> 1 main : pouce+index+majeur joints sur un coin → déplacer le cadre</span>
+  <span class="k"><span class="ic c2"></span> cadre immobile 3 s → photo · pince sur une pièce → déplacer</span>
+  <span class="k"><span class="ic c3"></span> poing fermé (1 s) → sauvegarder et recommencer</span>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -213,11 +215,11 @@
 
 /* ============================================================
    PUZZLE-CAM — casse-tête 3x3 contrôlé uniquement à la main
-   États : LIVE → COUNTDOWN → PUZZLE → SOLVED → (poing) → LIVE
+   États : LIVE (cadrage) → PUZZLE → SOLVED → (poing) → LIVE
    ============================================================ */
 
 const GRID = 3;                 // 3x3 = 9 pièces
-const COUNTDOWN_MS = 3000;      // pince 2 mains maintenue avant capture
+const COUNTDOWN_MS = 3000;      // cadre immobile pendant ce délai => photo
 const FIST_HOLD_MS = 1000;      // poing maintenu avant sauvegarde/reset
 const PINCH_RATIO = 0.35;       // dist 3D (pouce,index) / taille main => pince
 const PINCH_RELEASE = 0.55;     // hystérésis pour relâcher
@@ -239,17 +241,23 @@ const btnDownload = document.getElementById('btn-download');
 const btnReset    = document.getElementById('btn-reset');
 
 let W = 1280, H = 720;
-let mode = 'boot';              // boot | live | countdown | puzzle | solved
-let countdownStart = null;
+let mode = 'boot';              // boot | live | puzzle | solved
 let fistStart = null;
 let actionCooldownUntil = 0;    // anti-redéclenchement après un reset
 
-// zone du puzzle (rectangle) — carré centré par défaut, redimensionnable
-// en pinçant deux coins opposés avec les deux mains
+// zone du puzzle (rectangle) — carré centré par défaut, ajustable :
+//  - 2 mains pincées = 2 coins opposés (étirer)
+//  - 1 main en pose zoom (pouce-index, autres doigts repliés) = agrandir/rétrécir
+//  - 1 main pouce+index+majeur joints sur un coin = déplacer
+// dès que le cadre est immobile 3 s (mains ou pas), la photo est prise
 let zone = { x: 0, y: 0, w: 0, h: 0, cw: 0, ch: 0 };
 const MIN_ZONE = 180;           // taille minimale du cadre en pixels
-const STILL_TOLERANCE = 28;     // mouvement max des coins avant de relancer le compte à rebours
-let lastCorners = null;         // positions des coins à la frame précédente
+const ZONE_DEADBAND = 8;        // px de dérive par frame tolérés : cadre considéré immobile
+const CORNER_GRAB_R = 90;       // rayon de prise d'un coin (déplacement à 3 doigts)
+const THREE_PINCH_T = 0.40;     // seuil pouce+index+majeur joints (fraction de la taille de main)
+let stillSince = null;          // depuis quand le cadre est immobile (mode live)
+let zoomRef = null;             // référence du zoom à une main en cours
+let moveRef = null;             // référence du déplacement à une main en cours
 
 function setZone(x, y, w, h) {
   zone.x = x; zone.y = y; zone.w = w; zone.h = h;
@@ -345,18 +353,27 @@ function readHands(results) {
       if (tr.off >= PINCH_OFF_FRAMES) { tr.pinch = false; tr.on = 0; }
     }
 
-    // poing : les 4 doigts repliés (bout plus proche du poignet que l'articulation)
-    let folded = 0;
-    [[8, 6], [12, 10], [16, 14], [20, 18]].forEach(([tip, pip]) => {
-      if (dist(p(tip), wrist) < dist(p(pip), wrist)) folded++;
+    // doigts repliés, un par un (bout plus proche du poignet que l'articulation)
+    const foldedF = {};
+    [['index', 8, 6], ['middle', 12, 10], ['ring', 16, 14], ['pinky', 20, 18]].forEach(([name, tip, pip]) => {
+      foldedF[name] = dist(p(tip), wrist) < dist(p(pip), wrist);
     });
-    const fist = folded === 4 && !tr.pinch;
+    const foldedCount = Object.values(foldedF).filter(Boolean).length;
+    const fist = foldedCount === 4 && !tr.pinch;
+
+    // pouce + index + majeur joints : prise pour déplacer le cadre par un coin
+    const threePinch = dist3(thumb3, index3) < handSize * THREE_PINCH_T &&
+                       dist3(thumb3, p3(12)) < handSize * (THREE_PINCH_T + 0.06);
+
+    // pose de zoom : index tendu, majeur/annulaire/auriculaire repliés
+    // (le geste "pincer pour zoomer" d'un écran tactile)
+    const zoomPose = !threePinch && !foldedF.index && foldedF.middle && foldedF.ring && foldedF.pinky;
 
     // point de pince lissé (moyenne mobile exponentielle) : moins de tremblement
     const raw = { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
     tr.pt = tr.pt ? { x: tr.pt.x * 0.45 + raw.x * 0.55, y: tr.pt.y * 0.45 + raw.y * 0.55 } : raw;
 
-    hands.push({ label, lm, pinch: tr.pinch, fist, point: { ...tr.pt }, wasPinch: was, ratio });
+    hands.push({ label, lm, pinch: tr.pinch, fist, threePinch, zoomPose, point: { ...tr.pt }, wasPinch: was, ratio });
   });
   return hands;
 }
@@ -410,12 +427,13 @@ function resetToLive() {
   drag = null;
   captureCanvas = null;
   solvedAt = null;
-  countdownStart = null;
   fistStart = null;
   actionCooldownUntil = performance.now() + 1500;
   chipPlaced.classList.remove('on');
-  lastCorners = null;
-  setStatus('PINCE LES DEUX MAINS POUR CADRER ET CAPTURER');
+  stillSince = null;
+  zoomRef = null;
+  moveRef = null;
+  setStatus('CADRE IMMOBILE 3 S = PHOTO');
 }
 
 /* ---------------- galerie ---------------- */
@@ -574,8 +592,8 @@ function drawSolved(now) {
   ctx.restore();
 }
 
-function drawCountdown(now) {
-  const elapsed = now - countdownStart;
+function drawCountdown(now, start) {
+  const elapsed = now - start;
   const remain = Math.max(0, COUNTDOWN_MS - elapsed);
   const n = Math.ceil(remain / 1000);
   const frac = (remain % 1000) / 1000;
@@ -662,9 +680,12 @@ function onResults(results) {
   const fists = hands.filter(h => h.fist);
 
   /* --- machine à états --- */
-  if (mode === 'live' || mode === 'countdown') {
+  if (mode === 'live') {
+    let framing = false;                          // un geste ajuste le cadre cette frame ?
+    const zBefore = { x: zone.x, y: zone.y, w: zone.w, h: zone.h };
+
     if (pinching.length >= 2 && now > actionCooldownUntil) {
-      // les deux pinces tiennent deux coins opposés : le cadre les suit
+      /* --- 2 mains pincées : deux coins opposés, le cadre les suit --- */
       const [a, b] = [...pinching].sort((p, q) => p.label.localeCompare(q.label));
       const x1 = Math.min(a.point.x, b.point.x), x2 = Math.max(a.point.x, b.point.x);
       const y1 = Math.min(a.point.y, b.point.y), y2 = Math.max(a.point.y, b.point.y);
@@ -674,28 +695,69 @@ function onResults(results) {
         Math.max(0, Math.min(x1, W - w)),
         Math.max(0, Math.min(y1, H - h)),
         w, h);
-
-      // le compte à rebours ne tourne que si les coins sont à peu près immobiles
-      const moved = lastCorners
-        ? dist(a.point, lastCorners[0]) + dist(b.point, lastCorners[1])
-        : 0;
-      lastCorners = [{ ...a.point }, { ...b.point }];
-
-      if (mode === 'live') { mode = 'countdown'; countdownStart = now; setStatus('AJUSTE LE CADRE — STABLE 3S POUR CAPTURER'); }
-      if (moved > STILL_TOLERANCE) countdownStart = now; // en train d'ajuster
-
-      drawZoneFrame('#e6c14c');
       drawCornerHandles([a, b]);
-      if (now - countdownStart >= COUNTDOWN_MS) capturePuzzle();
-      else drawCountdown(now);
-    } else {
-      drawZoneFrame('rgba(230,193,76,0.45)');
-      lastCorners = null;
-      if (mode === 'countdown') {
-        mode = 'live';
-        countdownStart = null;
-        setStatus('PINCE LES DEUX MAINS POUR CADRER ET CAPTURER');
+      framing = true;
+      zoomRef = null; moveRef = null;
+    } else if (now > actionCooldownUntil) {
+      /* --- 1 main, pouce+index+majeur joints sur un coin : déplacer le cadre --- */
+      const mover = hands.find(h => h.threePinch);
+      if (mover) {
+        if (!moveRef) {
+          const corners = [
+            { x: zone.x, y: zone.y },           { x: zone.x + zone.w, y: zone.y },
+            { x: zone.x, y: zone.y + zone.h },  { x: zone.x + zone.w, y: zone.y + zone.h }
+          ];
+          // la prise ne s'engage que près d'un coin
+          if (corners.some(c => dist(mover.point, c) < CORNER_GRAB_R)) {
+            moveRef = { dx: mover.point.x - zone.x, dy: mover.point.y - zone.y };
+          }
+        }
+        if (moveRef) {
+          setZone(
+            Math.max(0, Math.min(mover.point.x - moveRef.dx, W - zone.w)),
+            Math.max(0, Math.min(mover.point.y - moveRef.dy, H - zone.h)),
+            zone.w, zone.h);
+          drawCornerHandles([mover]);
+          framing = true;
+        }
+      } else {
+        moveRef = null;
       }
+
+      /* --- 1 main en pose zoom : l'écart pouce-index agrandit/rétrécit le cadre --- */
+      const zoomer = !mover ? hands.find(h => h.zoomPose) : null;
+      if (zoomer) {
+        if (!zoomRef) {
+          // référence prise à l'engagement : l'écart actuel = taille actuelle
+          zoomRef = { r0: Math.max(0.08, zoomer.ratio), w0: zone.w, h0: zone.h,
+                      cx: zone.x + zone.w / 2, cy: zone.y + zone.h / 2 };
+        }
+        const s = Math.max(0.25, Math.min(4, zoomer.ratio / zoomRef.r0));
+        const nw = Math.max(MIN_ZONE, Math.min(W, zoomRef.w0 * s));
+        const nh = Math.max(MIN_ZONE, Math.min(H, zoomRef.h0 * s));
+        // le zoom se fait autour du centre du cadre au moment de l'engagement
+        setZone(
+          Math.max(0, Math.min(zoomRef.cx - nw / 2, W - nw)),
+          Math.max(0, Math.min(zoomRef.cy - nh / 2, H - nh)),
+          nw, nh);
+        drawCornerHandles([zoomer]);
+        framing = true;
+      } else {
+        zoomRef = null;
+      }
+    }
+
+    /* --- stabilité : cadre immobile 3 s (avec ou sans mains) → photo --- */
+    const movedPx = Math.abs(zone.x - zBefore.x) + Math.abs(zone.y - zBefore.y)
+                  + Math.abs(zone.w - zBefore.w) + Math.abs(zone.h - zBefore.h);
+    if (stillSince === null || movedPx > ZONE_DEADBAND) stillSince = now;
+
+    drawZoneFrame(framing ? '#e6c14c' : 'rgba(230,193,76,0.45)');
+    setStatus(framing ? 'AJUSTE LE CADRE — IMMOBILE 3 S = PHOTO' : 'CADRE IMMOBILE 3 S = PHOTO');
+
+    if (now > actionCooldownUntil) {
+      if (now - stillSince >= COUNTDOWN_MS) capturePuzzle();
+      else drawCountdown(now, stillSince);
     }
   }
   else if (mode === 'puzzle') {

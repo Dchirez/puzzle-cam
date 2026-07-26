@@ -1,26 +1,22 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PUZZLE-CAM — casse-tête gestuel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="ds.css">
 <style>
-  :root {
-    --bg: #111113;
-    --panel: #1a1a1d;
-    --panel-2: #232327;
-    --ink: #e8e6e0;
-    --muted: #8a8880;
-    --accent: #e6c14c;
-    --ok: #7dd87d;
-    --border: #38383d;
-  }
+  /* Application plein écran : on reste sur le thème sombre du design system
+     (classe .dark sur <html>), couleurs et typos viennent de ds.css. */
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    background: var(--bg);
-    color: var(--ink);
-    font-family: "Cascadia Mono", "Consolas", "Courier New", monospace;
+    background: var(--bg-page);
+    color: var(--text-body);
+    font-family: var(--font-mono);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -35,13 +31,20 @@
     border-bottom: 1px solid var(--border);
     flex: 0 0 auto;
   }
-  header .logo { color: var(--accent); font-weight: bold; letter-spacing: 1px; }
-  header .sub { color: var(--muted); font-size: 11px; letter-spacing: 2px; }
+  header .logo {
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--accent);
+  }
+  header .sub { color: var(--text-muted); font-size: 11px; letter-spacing: var(--tracking-widest); }
   header .spacer { flex: 1; }
   .chip {
-    background: #000;
+    background: var(--surface-sunken);
     border: 1px solid var(--border);
-    padding: 5px 10px;
+    border-radius: var(--radius-pill);
+    padding: 5px 12px;
     font-size: 11px;
     letter-spacing: 1px;
   }
@@ -76,21 +79,31 @@
     gap: 10px;
     align-items: center;
     justify-content: center;
-    background: rgba(10,10,12,.92);
+    background: rgba(9,9,11,.92);
+    backdrop-filter: blur(6px);
     text-align: center;
     padding: 30px;
     font-size: 14px;
-    line-height: 1.7;
+    line-height: var(--leading-relaxed);
     z-index: 5;
   }
   #overlay-msg.hidden { display: none; }
-  #overlay-msg .big { color: var(--accent); font-size: 18px; letter-spacing: 2px; }
+  #overlay-msg .big {
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+    background: var(--brand-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 
   /* ---------- panneau droit ---------- */
   aside {
     flex: 0 0 240px;
     border-left: 1px solid var(--border);
-    background: var(--panel);
+    background: var(--surface-card);
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -103,7 +116,7 @@
     font-size: 12px;
     letter-spacing: 2px;
   }
-  aside .head .count { color: var(--muted); }
+  aside .head .count { color: var(--text-muted); }
   #gallery {
     flex: 1;
     overflow-y: auto;
@@ -113,20 +126,22 @@
     gap: 12px;
   }
   #gallery .shot {
-    background: var(--panel-2);
+    background: var(--surface-raised);
     border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     padding: 8px;
   }
-  #gallery .shot img { width: 100%; display: block; filter: grayscale(1); }
+  #gallery .shot img { width: 100%; display: block; border-radius: var(--radius-xs); filter: grayscale(1); }
   #gallery .shot .cap {
     text-align: center;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 10px;
     letter-spacing: 2px;
     padding-top: 6px;
   }
   #gallery .empty {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 11px;
     text-align: center;
     margin-top: 30px;
@@ -143,13 +158,15 @@
     font-family: inherit;
     font-size: 11px;
     letter-spacing: 2px;
-    padding: 9px 8px;
-    background: var(--panel-2);
-    color: var(--ink);
-    border: 1px solid var(--border);
+    padding: 11px 8px;
+    background: var(--surface-raised);
+    color: var(--text-body);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-pill);
     cursor: pointer;
+    transition: border-color var(--dur-base), color var(--dur-base), transform var(--dur-fast) var(--ease-out);
   }
-  aside button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  aside button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); }
   aside button:disabled { opacity: .35; cursor: default; }
 
   /* ---------- légende bas ---------- */
@@ -161,13 +178,13 @@
     padding: 9px 16px;
     border-top: 1px solid var(--border);
     font-size: 11px;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   footer .k { display: flex; align-items: center; gap: 7px; }
   footer .ic { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   footer .ic.c1 { background: var(--accent); }
-  footer .ic.c2 { background: #6fb3d9; }
-  footer .ic.c3 { background: #d97b6f; }
+  footer .ic.c2 { background: var(--accent-2); }
+  footer .ic.c3 { background: var(--red-500); }
 </style>
 </head>
 <body>
@@ -226,6 +243,33 @@ const PINCH_RELEASE = 0.55;     // hystérésis pour relâcher
 const PINCH_ON_FRAMES = 3;      // frames consécutives sous le seuil pour activer
 const PINCH_OFF_FRAMES = 4;     // frames consécutives au-dessus pour relâcher
 const DRAG_GRACE_MS = 300;      // main perdue par le tracking : on garde la pièce
+
+/* Le canvas ne comprend pas les var(--…) : on lit les tokens du design system
+   une fois au démarrage et on les réutilise pour tous les tracés. */
+const TOKENS = getComputedStyle(document.documentElement);
+const token = (name, fallback) => TOKENS.getPropertyValue(name).trim() || fallback;
+const COL = {
+  accent:  token('--accent', '#f97316'),
+  ink:     token('--text-body', '#d4d4d8'),
+  surface: token('--bg-page', '#09090b'),
+  ok:      token('--green-400', '#22c55e'),
+  danger:  token('--red-500', '#dc2626'),
+};
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+
+// rgba() à partir d'un token hexadécimal, pour les tracés semi-transparents
+function alpha(hex, a) {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// composantes de l'accent, pour interpoler du blanc vers l'orange
+const ACCENT_RGB = (() => {
+  const m = alpha(COL.accent, 1).match(/[\d.]+/g);
+  return { r: +m[0], g: +m[1], b: +m[2] };
+})();
 
 const video   = document.getElementById('cam');
 const canvas  = document.getElementById('stage');
@@ -468,7 +512,7 @@ btnDownload.addEventListener('click', () => {
   strip.width = size + gap * 2;
   strip.height = shots.length * (size + gap) + gap;
   const c = strip.getContext('2d');
-  c.fillStyle = '#111113';
+  c.fillStyle = COL.surface;
   c.fillRect(0, 0, strip.width, strip.height);
   let loaded = 0;
   shots.forEach((s, i) => {
@@ -522,7 +566,7 @@ function drawZoneFrame(color) {
 // poignées visuelles sur les coins tenus par les pinces
 function drawCornerHandles(hands) {
   ctx.save();
-  ctx.strokeStyle = '#e6c14c';
+  ctx.strokeStyle = COL.accent;
   ctx.lineWidth = 4;
   hands.forEach(h => {
     ctx.beginPath();
@@ -532,8 +576,8 @@ function drawCornerHandles(hands) {
   // dimensions affichées au bord du cadre
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(zone.x + zone.w / 2 - 58, zone.y + zone.h + 8, 116, 22);
-  ctx.fillStyle = '#e6c14c';
-  ctx.font = '12px "Cascadia Mono", Consolas, monospace';
+  ctx.fillStyle = COL.accent;
+  ctx.font = `12px ${MONO}`;
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(zone.w)} × ${Math.round(zone.h)}`, zone.x + zone.w / 2, zone.y + zone.h + 24);
   ctx.restore();
@@ -545,7 +589,7 @@ function drawPuzzle() {
     if (drag && drag.fromCell === cell) continue; // la pièce saisie est dessinée à part
     const r = cellRect(cell);
     ctx.drawImage(tiles[t], r.x, r.y, r.w, r.h);
-    ctx.strokeStyle = t === cell ? 'rgba(125,216,125,0.85)' : 'rgba(0,0,0,0.55)';
+    ctx.strokeStyle = t === cell ? alpha(COL.ok, 0.85) : 'rgba(0,0,0,0.55)';
     ctx.lineWidth = t === cell ? 2 : 1;
     ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
   }
@@ -555,7 +599,7 @@ function drawPuzzle() {
     ctx.shadowColor = 'rgba(0,0,0,0.8)';
     ctx.shadowBlur = 24;
     ctx.drawImage(tiles[drag.tile], drag.x - dw / 2, drag.y - dh / 2, dw, dh);
-    ctx.strokeStyle = '#e6c14c';
+    ctx.strokeStyle = COL.accent;
     ctx.lineWidth = 3;
     ctx.strokeRect(drag.x - dw / 2, drag.y - dh / 2, dw, dh);
     ctx.restore();
@@ -563,7 +607,7 @@ function drawPuzzle() {
     const target = cellAt(drag.x, drag.y);
     if (target >= 0) {
       const r = cellRect(target);
-      ctx.strokeStyle = 'rgba(230,193,76,0.7)';
+      ctx.strokeStyle = alpha(COL.accent, 0.7);
       ctx.setLineDash([8, 6]);
       ctx.lineWidth = 2;
       ctx.strokeRect(r.x + 3, r.y + 3, r.w - 6, r.h - 6);
@@ -575,7 +619,7 @@ function drawPuzzle() {
 function drawSolved(now) {
   ctx.drawImage(captureCanvas, zone.x, zone.y, zone.w, zone.h);
   const pulse = 0.6 + 0.4 * Math.sin(now / 250);
-  ctx.strokeStyle = `rgba(230,193,76,${pulse})`;
+  ctx.strokeStyle = alpha(COL.accent, pulse);
   ctx.lineWidth = 5;
   ctx.strokeRect(zone.x - 4, zone.y - 4, zone.w + 8, zone.h + 8);
 
@@ -584,12 +628,12 @@ function drawSolved(now) {
   const bw = 340, bh = 64;
   const by = Math.max(10, zone.y - 80); // reste visible même si le cadre touche le haut
   ctx.fillRect(W / 2 - bw / 2, by, bw, bh);
-  ctx.fillStyle = '#e6c14c';
-  ctx.font = 'bold 26px "Cascadia Mono", Consolas, monospace';
+  ctx.fillStyle = COL.accent;
+  ctx.font = `bold 26px ${MONO}`;
   ctx.textAlign = 'center';
   ctx.fillText('RÉSOLU !', W / 2, by + 26);
-  ctx.fillStyle = '#e8e6e0';
-  ctx.font = '13px "Cascadia Mono", Consolas, monospace';
+  ctx.fillStyle = COL.ink;
+  ctx.font = `13px ${MONO}`;
   ctx.fillText('poing fermé pour sauvegarder', W / 2, by + 50);
   ctx.restore();
 }
@@ -602,13 +646,13 @@ function drawCountdown(now, start) {
   const cx = zone.x + zone.w / 2, cy = zone.y + zone.h / 2;
 
   ctx.save();
-  ctx.strokeStyle = '#e6c14c';
+  ctx.strokeStyle = COL.accent;
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.arc(cx, cy, 70, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
   ctx.stroke();
-  ctx.fillStyle = '#e6c14c';
-  ctx.font = 'bold 72px "Cascadia Mono", Consolas, monospace';
+  ctx.fillStyle = COL.accent;
+  ctx.font = `bold 72px ${MONO}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(n), cx, cy);
@@ -618,13 +662,13 @@ function drawCountdown(now, start) {
 function drawFistProgress(now, point) {
   const frac = Math.min(1, (now - fistStart) / FIST_HOLD_MS);
   ctx.save();
-  ctx.strokeStyle = '#d97b6f';
+  ctx.strokeStyle = COL.danger;
   ctx.lineWidth = 5;
   ctx.beginPath();
   ctx.arc(point.x, point.y - 60, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
   ctx.stroke();
-  ctx.fillStyle = '#d97b6f';
-  ctx.font = '11px "Cascadia Mono", Consolas, monospace';
+  ctx.fillStyle = COL.danger;
+  ctx.font = `11px ${MONO}`;
   ctx.textAlign = 'center';
   ctx.fillText('SAUVEGARDE…', point.x, point.y - 100);
   ctx.restore();
@@ -645,20 +689,22 @@ function drawHand(hand) {
   });
   for (let i = 0; i < 21; i++) {
     const pt = p(i);
-    ctx.fillStyle = (i === 4 || i === 8) ? '#e6c14c' : '#fff';
+    ctx.fillStyle = (i === 4 || i === 8) ? COL.accent : '#fff';
     ctx.beginPath(); ctx.arc(pt.x, pt.y, i % 4 === 0 ? 4 : 2.5, 0, Math.PI * 2); ctx.fill();
   }
   // jauge de pince : la ligne pouce-index jaunit à l'approche du seuil
   const thumb = p(4), index = p(8);
   if (hand.pinch) {
-    ctx.strokeStyle = '#e6c14c';
+    ctx.strokeStyle = COL.accent;
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(hand.point.x, hand.point.y, 14, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(230,193,76,0.35)';
+    ctx.fillStyle = alpha(COL.accent, 0.35);
     ctx.beginPath(); ctx.arc(hand.point.x, hand.point.y, 14, 0, Math.PI * 2); ctx.fill();
   } else {
     const closeness = Math.max(0, Math.min(1, 1 - (hand.ratio - PINCH_RATIO) / 0.45));
-    ctx.strokeStyle = `rgba(${255 - 25 * closeness},${255 - 62 * closeness},${255 - 179 * closeness},${0.35 + 0.6 * closeness})`;
+    // du blanc vers l'accent à mesure que la pince se referme
+    const mix = (to) => Math.round(255 - (255 - to) * closeness);
+    ctx.strokeStyle = `rgba(${mix(ACCENT_RGB.r)},${mix(ACCENT_RGB.g)},${mix(ACCENT_RGB.b)},${0.35 + 0.6 * closeness})`;
     ctx.lineWidth = 2 + 2.5 * closeness;
     ctx.setLineDash(closeness > 0.8 ? [] : [5, 5]);
     ctx.beginPath(); ctx.moveTo(thumb.x, thumb.y); ctx.lineTo(index.x, index.y); ctx.stroke();
@@ -757,7 +803,7 @@ function onResults(results) {
                   + Math.abs(zone.w - zBefore.w) + Math.abs(zone.h - zBefore.h);
     if (stillSince === null || movedPx > ZONE_DEADBAND) stillSince = now;
 
-    drawZoneFrame(framing ? '#e6c14c' : 'rgba(230,193,76,0.45)');
+    drawZoneFrame(framing ? COL.accent : alpha(COL.accent, 0.45));
     setStatus(framing ? 'AJUSTE LE CADRE — IMMOBILE 3 S = PHOTO' : 'CADRE IMMOBILE 3 S = PHOTO');
 
     if (now > actionCooldownUntil) {
@@ -766,7 +812,7 @@ function onResults(results) {
     }
   }
   else if (mode === 'puzzle') {
-    drawZoneFrame('rgba(230,193,76,0.45)');
+    drawZoneFrame(alpha(COL.accent, 0.45));
     drawPuzzle();
 
     /* --- glisser-déposer --- */
@@ -860,7 +906,7 @@ async function start() {
       'Impossible d\'accéder à la caméra.<br>' +
       'Vérifie que l\'accès est autorisé dans le navigateur<br>' +
       'et qu\'aucune autre application ne l\'utilise.<br><br>' +
-      '<span style="color:var(--muted)">' + err.name + ' — ' + err.message + '</span>';
+      '<span style="color:var(--text-muted)">' + err.name + ' — ' + err.message + '</span>';
   }
 }
 

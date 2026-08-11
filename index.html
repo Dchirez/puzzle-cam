@@ -147,6 +147,19 @@
     margin-top: 30px;
     line-height: 1.8;
   }
+  /* sélecteur de taille : une rangée de pastilles, l'active en accent */
+  .grid-pick {
+    display: flex;
+    gap: 6px;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .grid-pick button { flex: 1; padding: 9px 0; letter-spacing: 1px; }
+  .grid-pick button.on {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
   aside .actions {
     padding: 12px;
     border-top: 1px solid var(--border);
@@ -193,7 +206,8 @@
   <span class="logo">PUZZLE-CAM</span>
   <span class="sub">CASSE-TÊTE GESTUEL — MAINS LIBRES</span>
   <span class="spacer"></span>
-  <span class="chip" id="chip-placed"><span id="placed-count">0</span> / 9 PIÈCES PLACÉES</span>
+  <span class="chip" id="chip-grid"><span id="grid-label">3 × 3</span></span>
+  <span class="chip" id="chip-placed"><span id="placed-count">0</span> / <span id="total-count">9</span> PIÈCES PLACÉES</span>
   <span class="chip"><span class="dot">●</span> <span id="status-text">CADRE IMMOBILE 3 S = PHOTO</span></span>
 </header>
 
@@ -208,6 +222,13 @@
   </div>
 
   <aside>
+    <div class="head"><span>TAILLE</span><span class="count" id="grid-count">9 PIÈCES</span></div>
+    <div class="grid-pick" id="grid-opts">
+      <button data-n="2">2×2</button>
+      <button data-n="3" class="on">3×3</button>
+      <button data-n="4">4×4</button>
+      <button data-n="5">5×5</button>
+    </div>
     <div class="head"><span>BANDE</span><span class="count" id="gallery-count">0 CAPTURE</span></div>
     <div id="gallery"><div class="empty">Aucune capture.<br>Résous un puzzle puis<br>ferme le poing pour<br>sauvegarder ici.</div></div>
     <div class="actions">
@@ -221,6 +242,7 @@
   <span class="k"><span class="ic c1"></span> 2 mains pincées → étirer le cadre par 2 coins</span>
   <span class="k"><span class="ic c1"></span> 1 main : écart pouce-index (autres doigts repliés) → zoomer le cadre</span>
   <span class="k"><span class="ic c1"></span> 1 main : pouce+index+majeur joints sur un coin → déplacer le cadre</span>
+  <span class="k"><span class="ic c2"></span> main levée, 2 à 5 doigts tendus (1,5 s) → taille du puzzle</span>
   <span class="k"><span class="ic c2"></span> cadre immobile 3 s → photo · pince sur une pièce → déplacer</span>
   <span class="k"><span class="ic c3"></span> poing fermé (1 s) → sauvegarder et recommencer</span>
 </footer>
@@ -231,11 +253,13 @@
 'use strict';
 
 /* ============================================================
-   PUZZLE-CAM — casse-tête 3x3 contrôlé uniquement à la main
+   PUZZLE-CAM — casse-tête N×N contrôlé uniquement à la main
    États : LIVE (cadrage) → PUZZLE → SOLVED → (poing) → LIVE
    ============================================================ */
 
-const GRID = 3;                 // 3x3 = 9 pièces
+let GRID = 3;                   // N×N pièces, réglable au geste ou au clic
+const GRID_MIN = 2, GRID_MAX = 5;
+const GRID_HOLD_MS = 1500;      // doigts levés maintenus avant de changer la taille
 const COUNTDOWN_MS = 3000;      // cadre immobile pendant ce délai => photo
 const FIST_HOLD_MS = 1000;      // poing maintenu avant sauvegarde/reset
 const PINCH_RATIO = 0.35;       // dist 3D (pouce,index) / taille main => pince
@@ -283,6 +307,10 @@ const galleryEl   = document.getElementById('gallery');
 const galleryCount= document.getElementById('gallery-count');
 const btnDownload = document.getElementById('btn-download');
 const btnReset    = document.getElementById('btn-reset');
+const gridOpts    = document.getElementById('grid-opts');
+const gridLabel   = document.getElementById('grid-label');
+const gridCount   = document.getElementById('grid-count');
+const totalCount  = document.getElementById('total-count');
 
 let W = 1280, H = 720;
 let mode = 'boot';              // boot | live | puzzle | solved
@@ -295,7 +323,8 @@ let actionCooldownUntil = 0;    // anti-redéclenchement après un reset
 //  - 1 main pouce+index+majeur joints sur un coin = déplacer
 // dès que le cadre est immobile 3 s (mains ou pas), la photo est prise
 let zone = { x: 0, y: 0, w: 0, h: 0, cw: 0, ch: 0 };
-const MIN_ZONE = 180;           // taille minimale du cadre en pixels
+const MIN_PIECE = 56;           // côté minimal d'une pièce : elle doit rester attrapable
+const minZone = () => Math.max(180, MIN_PIECE * GRID); // taille mini du cadre, selon la grille
 const ZONE_DEADBAND = 8;        // px de dérive par frame tolérés : cadre considéré immobile
 const CORNER_GRAB_R = 90;       // rayon de prise d'un coin (déplacement à 3 doigts)
 const THREE_PINCH_T = 0.40;     // seuil pouce+index+majeur joints (fraction de la taille de main)
@@ -304,14 +333,41 @@ const ZOOM_OUT_DAMP = 0.5;      // rapprocher les doigts : rétrécissement amor
 let stillSince = null;          // depuis quand le cadre est immobile (mode live)
 let zoomRef = null;             // référence du zoom à une main en cours
 let moveRef = null;             // référence du déplacement à une main en cours
+let gridPick = null;            // sélection de taille en cours : { n, since }
 
 function setZone(x, y, w, h) {
   zone.x = x; zone.y = y; zone.w = w; zone.h = h;
   zone.cw = w / GRID; zone.ch = h / GRID;
 }
 
+/* Change la taille de la grille. Un puzzle en cours est abandonné : ses pièces
+   sont découpées pour l'ancienne grille et n'ont plus de sens. */
+function setGrid(n) {
+  n = Math.max(GRID_MIN, Math.min(GRID_MAX, n));
+  if (n === GRID) return;
+  GRID = n;
+  const w = Math.min(W, Math.max(zone.w, minZone())), h = Math.min(H, Math.max(zone.h, minZone()));
+  setZone(Math.max(0, Math.min(zone.x, W - w)), Math.max(0, Math.min(zone.y, H - h)), w, h);
+  syncGridUI();
+  if (mode === 'puzzle' || mode === 'solved') resetToLive();
+  stillSince = null;
+}
+
+function syncGridUI() {
+  gridLabel.textContent = `${GRID} × ${GRID}`;
+  gridCount.textContent = `${GRID * GRID} PIÈCES`;
+  totalCount.textContent = GRID * GRID;
+  gridOpts.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', +b.dataset.n === GRID));
+}
+
+gridOpts.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) setGrid(+b.dataset.n);
+});
+
 // puzzle
-let tiles = [];                 // 9 canvases (l'image découpée)
+let tiles = [];                 // les N×N canvases (l'image découpée)
 let grid  = [];                 // grid[cellule] = index de pièce
 let captureCanvas = null;       // l'image complète capturée
 let solvedAt = null;
@@ -415,11 +471,25 @@ function readHands(results) {
     // (le geste "pincer pour zoomer" d'un écran tactile)
     const zoomPose = !threePinch && !foldedF.index && foldedF.middle && foldedF.ring && foldedF.pinky;
 
+    // pouce écarté : replié en travers de la paume, son bout se rapproche de l'auriculaire
+    const thumbOut = dist(p(4), p(17)) > dist(p(3), p(17)) * 1.05;
+
+    /* Choix de la taille du puzzle : on lit quels doigts sont tendus plutôt que
+       leur nombre, pour ne pas confondre avec la pose de zoom (index seul). */
+    const up = f => !foldedF[f];
+    let gridPose = 0;
+    if (!tr.pinch && !threePinch && up('index') && up('middle')) {
+      if (!up('ring') && !up('pinky')) gridPose = 2;            // index + majeur
+      else if (up('ring') && !up('pinky')) gridPose = 3;        // + annulaire
+      else if (up('ring') && up('pinky')) gridPose = thumbOut ? 5 : 4; // main ouverte
+    }
+
     // point de pince lissé (moyenne mobile exponentielle) : moins de tremblement
     const raw = { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
     tr.pt = tr.pt ? { x: tr.pt.x * 0.45 + raw.x * 0.55, y: tr.pt.y * 0.45 + raw.y * 0.55 } : raw;
 
-    hands.push({ label, lm, pinch: tr.pinch, fist, threePinch, zoomPose, point: { ...tr.pt }, wasPinch: was, ratio });
+    hands.push({ label, lm, pinch: tr.pinch, fist, threePinch, zoomPose, gridPose,
+                 point: { ...tr.pt }, wasPinch: was, ratio });
   });
   return hands;
 }
@@ -427,9 +497,9 @@ function readHands(results) {
 /* ---------------- capture et puzzle ---------------- */
 
 function capturePuzzle() {
-  // dimensions entières multiples de 3 pour un découpage net
-  const w = Math.max(MIN_ZONE, Math.round(zone.w / GRID) * GRID);
-  const h = Math.max(MIN_ZONE, Math.round(zone.h / GRID) * GRID);
+  // dimensions entières multiples de GRID pour un découpage net
+  const snap = v => Math.round(Math.max(minZone(), v) / GRID) * GRID;
+  const w = snap(zone.w), h = snap(zone.h);
   setZone(zone.x, zone.y, w, h);
 
   captureCanvas = document.createElement('canvas');
@@ -479,6 +549,7 @@ function resetToLive() {
   stillSince = null;
   zoomRef = null;
   moveRef = null;
+  gridPick = null;
   setStatus('CADRE IMMOBILE 3 S = PHOTO');
 }
 
@@ -561,6 +632,40 @@ function drawZoneFrame(color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.strokeRect(zone.x - 1.5, zone.y - 1.5, zone.w + 3, zone.h + 3);
+}
+
+// aperçu du découpage : montre la taille de grille choisie avant la photo
+function drawZoneGrid() {
+  ctx.save();
+  ctx.strokeStyle = alpha(COL.accent, 0.3);
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 6]);
+  for (let i = 1; i < GRID; i++) {
+    const x = zone.x + i * zone.cw, y = zone.y + i * zone.ch;
+    ctx.beginPath(); ctx.moveTo(x, zone.y); ctx.lineTo(x, zone.y + zone.h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(zone.x, y); ctx.lineTo(zone.x + zone.w, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// jauge du choix de taille, au-dessus de la main qui compte
+function drawGridPick(point, n, frac) {
+  const cx = point.x, cy = Math.max(70, point.y - 90);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.strokeStyle = alpha(COL.accent, 0.25);
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(cx, cy, 34, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = COL.accent;
+  ctx.beginPath(); ctx.arc(cx, cy, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
+  ctx.fillStyle = COL.accent;
+  ctx.font = `bold 20px ${MONO}`;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${n}×${n}`, cx, cy);
+  ctx.font = `10px ${MONO}`;
+  ctx.fillStyle = frac >= 1 ? COL.ok : COL.ink;
+  ctx.fillText(frac >= 1 ? 'TAILLE RÉGLÉE' : 'TAILLE…', cx, cy + 50);
+  ctx.restore();
 }
 
 // poignées visuelles sur les coins tenus par les pinces
@@ -732,13 +837,25 @@ function onResults(results) {
     let framing = false;                          // un geste ajuste le cadre cette frame ?
     const zBefore = { x: zone.x, y: zone.y, w: zone.w, h: zone.h };
 
+    /* --- doigts levés maintenus : choisit le nombre de cases --- */
+    const picker = hands.find(h => h.gridPose >= GRID_MIN);
+    if (picker && now > actionCooldownUntil) {
+      if (!gridPick || gridPick.n !== picker.gridPose) gridPick = { n: picker.gridPose, since: now };
+      const frac = Math.min(1, (now - gridPick.since) / GRID_HOLD_MS);
+      if (frac >= 1) setGrid(gridPick.n);         // sans effet si la taille est déjà la bonne
+      drawGridPick(picker.point, gridPick.n, frac);
+      setStatus(`TAILLE ${gridPick.n} × ${gridPick.n}…`);
+    } else {
+      gridPick = null;
+    }
+
     if (pinching.length >= 2 && now > actionCooldownUntil) {
       /* --- 2 mains pincées : deux coins opposés, le cadre les suit --- */
       const [a, b] = [...pinching].sort((p, q) => p.label.localeCompare(q.label));
       const x1 = Math.min(a.point.x, b.point.x), x2 = Math.max(a.point.x, b.point.x);
       const y1 = Math.min(a.point.y, b.point.y), y2 = Math.max(a.point.y, b.point.y);
-      const w = Math.min(W, Math.max(MIN_ZONE, x2 - x1));
-      const h = Math.min(H, Math.max(MIN_ZONE, y2 - y1));
+      const w = Math.min(W, Math.max(minZone(), x2 - x1));
+      const h = Math.min(H, Math.max(minZone(), y2 - y1));
       setZone(
         Math.max(0, Math.min(x1, W - w)),
         Math.max(0, Math.min(y1, H - h)),
@@ -784,8 +901,8 @@ function onResults(results) {
         let s = zoomer.ratio / zoomRef.r0;
         s = s >= 1 ? 1 + (s - 1) * ZOOM_IN_GAIN : 1 - (1 - s) * ZOOM_OUT_DAMP;
         s = Math.max(0.25, Math.min(4, s));
-        const nw = Math.max(MIN_ZONE, Math.min(W, zoomRef.w0 * s));
-        const nh = Math.max(MIN_ZONE, Math.min(H, zoomRef.h0 * s));
+        const nw = Math.max(minZone(), Math.min(W, zoomRef.w0 * s));
+        const nh = Math.max(minZone(), Math.min(H, zoomRef.h0 * s));
         // le zoom se fait autour du centre du cadre au moment de l'engagement
         setZone(
           Math.max(0, Math.min(zoomRef.cx - nw / 2, W - nw)),
@@ -798,15 +915,19 @@ function onResults(results) {
       }
     }
 
-    /* --- stabilité : cadre immobile 3 s (avec ou sans mains) → photo --- */
+    /* --- stabilité : cadre immobile 3 s (avec ou sans mains) → photo.
+           Choisir la taille suspend le décompte : on ne shoote pas en plein réglage. --- */
     const movedPx = Math.abs(zone.x - zBefore.x) + Math.abs(zone.y - zBefore.y)
                   + Math.abs(zone.w - zBefore.w) + Math.abs(zone.h - zBefore.h);
-    if (stillSince === null || movedPx > ZONE_DEADBAND) stillSince = now;
+    if (stillSince === null || movedPx > ZONE_DEADBAND || picker) stillSince = now;
 
     drawZoneFrame(framing ? COL.accent : alpha(COL.accent, 0.45));
-    setStatus(framing ? 'AJUSTE LE CADRE — IMMOBILE 3 S = PHOTO' : 'CADRE IMMOBILE 3 S = PHOTO');
+    drawZoneGrid();
+    if (!picker) {
+      setStatus(framing ? 'AJUSTE LE CADRE — IMMOBILE 3 S = PHOTO' : 'CADRE IMMOBILE 3 S = PHOTO');
+    }
 
-    if (now > actionCooldownUntil) {
+    if (now > actionCooldownUntil && !picker) {
       if (now - stillSince >= COUNTDOWN_MS) capturePuzzle();
       else drawCountdown(now, stillSince);
     }
@@ -890,8 +1011,9 @@ async function start() {
     W = canvas.width = video.videoWidth || 1280;
     H = canvas.height = video.videoHeight || 720;
 
-    const s = Math.floor(Math.min(W, H) * 0.72 / GRID) * GRID; // multiple de 3
+    const s = Math.floor(Math.min(W, H) * 0.72 / GRID) * GRID; // multiple de GRID
     setZone(Math.floor((W - s) / 2), Math.floor((H - s) / 2), s, s);
+    syncGridUI();
 
     overlayText.textContent = 'Caméra OK — chargement du modèle de détection des mains…';
 
